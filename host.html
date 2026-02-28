@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>شاشة المقدم</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700&display=swap');
+        body { font-family: 'Cairo', sans-serif; background-color: #0a0a0a; color: white; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .manage-btn { position: fixed; top: 20px; right: 20px; background: #ff073a; color: white; border: none; padding: 10px 20px; border-radius: 10px; font-family: 'Cairo', sans-serif; font-size: 1.2rem; cursor: pointer; font-weight: bold; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5);}
+        
+        .timer-container { position: fixed; top: 20px; left: 20px; background: rgba(0,0,0,0.8); padding: 15px 25px; border-radius: 15px; border: 2px solid #555; display: none; z-index: 200; text-align: center; min-width: 120px; box-shadow: 0 0 20px rgba(255, 204, 0, 0.3);}
+        .timer-text { font-size: 3rem; font-weight: bold; color: #ffcc00; margin: 0; line-height: 1;}
+        
+        /* تأثير التلألؤ البطيء للرقم 0 */
+        @keyframes pulseRed {
+            0% { color: #ff073a; text-shadow: 0 0 20px #ff073a; opacity: 1; }
+            50% { color: #ff073a; text-shadow: 0 0 5px #ff073a; opacity: 0.3; }
+            100% { color: #ff073a; text-shadow: 0 0 20px #ff073a; opacity: 1; }
+        }
+        .text-pulse-red {
+            animation: pulseRed 1.5s infinite ease-in-out;
+        }
+
+        .header { text-align: center; margin-bottom: 20px; margin-top: 80px; }
+        .room-badge { background: #ffcc00; color: #000; padding: 10px 30px; border-radius: 50px; font-size: 2rem; font-weight: bold; margin-bottom: 20px; display: inline-block;}
+        
+        .controls-container { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; margin-bottom: 20px; }
+        .reset-btn { border: none; padding: 10px 25px; font-size: 1.2rem; font-family: 'Cairo', sans-serif; border-radius: 10px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 10px rgba(255,255,255,0.1); transition: 0.2s;}
+        .btn-normal-reset { background: #444; color: white; }
+        .btn-new-q-reset { background: #007bff; color: white; }
+        .btn-start-other { background: #ff8800; color: white; display: none; }
+        .reset-btn:active { transform: scale(0.95); }
+        
+        .teams-container { display: flex; flex-wrap: wrap; width: 100%; max-width: 1200px; gap: 20px; justify-content: center; }
+        .team { flex: 1 1 300px; background: #1a1a1a; border-radius: 20px; padding: 20px; min-height: 200px; border: 2px solid #333;}
+        .team h2 { text-align: center; font-size: 1.8rem; margin-top: 0; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .team-green h2 { color: #39ff14; }
+        .team-red h2 { color: #ff073a; }
+        .players-list { display: flex; flex-direction: column; gap: 10px; }
+        .player-cell { background: #222; padding: 15px; text-align: center; font-size: 1.5rem; border-radius: 10px; transition: 0.2s; }
+        
+        .winner-green { background: #39ff14; color: #000; box-shadow: 0 0 30px #39ff14; transform: scale(1.05); }
+        .winner-red { background: #ff073a; color: #fff; box-shadow: 0 0 30px #ff073a; transform: scale(1.05); }
+
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;}
+        .modal-content { background: #1a1a1a; padding: 30px; border-radius: 20px; width: 100%; max-width: 500px; border: 2px solid #333; max-height: 80vh; overflow-y: auto;}
+        .modal-close { float: left; cursor: pointer; color: #aaa; font-size: 1.5rem; }
+        .kick-list-item { display: flex; justify-content: space-between; background: #222; padding: 10px 15px; border-radius: 8px; margin-bottom: 10px; align-items: center; }
+        .kick-list-item button { background: #ff073a; color: white; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-family: 'Cairo'; font-weight: bold;}
+
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            .manage-btn { top: 15px; right: 15px; font-size: 0.9rem; padding: 8px 12px; }
+            .timer-container { top: 15px; left: 15px; padding: 10px 15px; min-width: 80px; }
+            .timer-text { font-size: 2rem; }
+            .header { margin-top: 70px; } 
+            .room-badge { font-size: 1.5rem; padding: 8px 25px; margin-bottom: 15px;}
+            .reset-btn { font-size: 1rem; padding: 8px 20px; }
+            .team h2 { font-size: 1.4rem; }
+            .player-cell { font-size: 1.2rem; padding: 10px; }
+            .modal-content { padding: 20px; }
+        }
+    </style>
+</head>
+<body>
+
+    <button class="manage-btn" onclick="openKickModal()">إدارة اللاعبين ⚙️</button>
+
+    <div id="host-timer-container" class="timer-container">
+        <div id="timer-text" class="timer-text">3</div>
+    </div>
+
+    <div id="kickModal" class="modal-overlay">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeKickModal()">✖</span>
+            <h2 style="margin-top:0;">طرد لاعب</h2>
+            <h3 style="color: #39ff14;">الفريق الأخضر</h3><div id="modal-green-list"></div>
+            <h3 style="color: #ff073a;">الفريق الأحمر</h3><div id="modal-red-list"></div>
+        </div>
+    </div>
+
+    <div class="header">
+        <div>رمز الغرفة:</div>
+        <div id="roomCodeDisplay" class="room-badge">جارِ التحميل...</div><br>
+        
+        <div class="controls-container">
+            <button id="btn-normal-reset" class="reset-btn btn-normal-reset" onclick="resetGame(false)">إعادة ضبط</button>
+            <button id="btn-start-other" class="reset-btn btn-start-other" onclick="startOtherTeamTime()">بدء وقت الخصم</button>
+            <button class="reset-btn btn-new-q-reset" onclick="resetGame(true)">إعادة ضبط لسؤال جديد</button>
+        </div>
+
+    </div>
+
+    <div class="teams-container">
+        <div class="team team-green">
+            <h2>الفريق الأخضر</h2>
+            <div id="green-team-players" class="players-list"></div>
+        </div>
+        <div class="team team-red">
+            <h2>الفريق الأحمر</h2>
+            <div id="red-team-players" class="players-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myRoomCode = localStorage.getItem('hostRoomCode');
+        let myHostToken = localStorage.getItem('hostToken');
+        let currentPlayers = [];
+        
+        let activeTimeout = null;
+        let activeInterval = null;
+        let currentWinnerColor = null;
+
+        if (myRoomCode && myHostToken) {
+            socket.emit('rejoin_host', { roomCode: myRoomCode, hostToken: myHostToken });
+        } else {
+            socket.emit('create_room');
+        }
+
+        socket.on('room_created', (data) => {
+            myRoomCode = data.roomCode;
+            localStorage.setItem('hostRoomCode', data.roomCode);
+            localStorage.setItem('hostToken', data.hostToken);
+            document.getElementById('roomCodeDisplay').innerText = data.roomCode;
+        });
+
+        socket.on('room_closed', () => {
+            localStorage.removeItem('hostRoomCode');
+            localStorage.removeItem('hostToken');
+            socket.emit('create_room'); 
+        });
+
+        socket.on('update_players', (players) => {
+            currentPlayers = players;
+            const greenDiv = document.getElementById('green-team-players');
+            const redDiv = document.getElementById('red-team-players');
+            greenDiv.innerHTML = ''; redDiv.innerHTML = '';
+            players.forEach(p => {
+                const div = document.createElement('div');
+                div.id = 'player-' + p.id;
+                div.className = 'player-cell';
+                div.innerText = p.name; 
+                p.color === 'green' ? greenDiv.appendChild(div) : redDiv.appendChild(div);
+            });
+            renderKickModal();
+        });
+
+        socket.on('declare_winner', (data) => {
+            clearTimers();
+            currentWinnerColor = data.color;
+            
+            const cell = document.getElementById('player-' + data.id);
+            if (cell) cell.classList.add(data.color === 'green' ? 'winner-green' : 'winner-red');
+
+            if (data.timersEnabled) {
+                activeTimeout = setTimeout(() => {
+                    start3sCountdown();
+                }, 1000);
+            } else {
+                document.getElementById('host-timer-container').style.display = 'none';
+            }
+        });
+
+        function start3sCountdown() {
+            const container = document.getElementById('host-timer-container');
+            const text = document.getElementById('timer-text');
+            
+            container.style.display = 'block';
+            text.style.display = 'block';
+            text.style.color = '#ffcc00'; 
+            text.classList.remove('text-pulse-red'); 
+            
+            let timeLeft = 3;
+            text.innerText = timeLeft;
+
+            activeInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft > 0) {
+                    text.innerText = timeLeft;
+                } else {
+                    clearInterval(activeInterval);
+                    
+                    text.innerText = '0';
+                    text.classList.add('text-pulse-red');
+                    playBeepSound(); 
+                    
+                    document.getElementById('btn-normal-reset').style.display = 'none';
+                    document.getElementById('btn-start-other').style.display = 'inline-block';
+                    
+                    socket.emit('time_3s_finished', myRoomCode);
+                }
+            }, 1000);
+        }
+
+        function startOtherTeamTime() {
+            socket.emit('start_other_team_time', { roomCode: myRoomCode, blockedTeam: currentWinnerColor });
+            
+            // إزالة التوهج عن جميع اللاعبين بمجرد بدء وقت الخصم
+            document.querySelectorAll('.player-cell').forEach(c => c.classList.remove('winner-green', 'winner-red'));
+            
+            const text = document.getElementById('timer-text');
+            
+            document.getElementById('btn-start-other').style.display = 'none';
+            
+            text.classList.remove('text-pulse-red');
+            text.style.color = '#ff073a'; 
+            
+            let timeLeft = 10;
+            text.innerText = timeLeft;
+
+            activeInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft > 0) {
+                    text.innerText = timeLeft;
+                } else {
+                    clearInterval(activeInterval);
+                    document.getElementById('host-timer-container').style.display = 'none';
+                    socket.emit('timer_10s_finished', myRoomCode); 
+                    
+                    document.getElementById('btn-normal-reset').style.display = 'inline-block';
+                }
+            }, 1000);
+        }
+
+        function playBeepSound() {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if(!AudioContext) return;
+            const ctx = new AudioContext();
+            let beeps = 0;
+            const interval = setInterval(() => {
+                const osc = ctx.createOscillator();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(600, ctx.currentTime); 
+                osc.connect(ctx.destination);
+                osc.start();
+                osc.stop(ctx.currentTime + 0.15); 
+                beeps++;
+                if(beeps >= 3) clearInterval(interval);
+            }, 300); 
+        }
+
+        function clearTimers() {
+            clearTimeout(activeTimeout);
+            clearInterval(activeInterval);
+            const text = document.getElementById('timer-text');
+            if(text) {
+                text.style.color = '#ffcc00'; 
+                text.classList.remove('text-pulse-red');
+            }
+            
+            const btnNormalReset = document.getElementById('btn-normal-reset');
+            const btnStartOther = document.getElementById('btn-start-other');
+            if(btnNormalReset) btnNormalReset.style.display = 'inline-block';
+            if(btnStartOther) btnStartOther.style.display = 'none';
+        }
+
+        function resetGame(isNewQuestion) {
+            if(myRoomCode) socket.emit('reset', { roomCode: myRoomCode, isNewQuestion: isNewQuestion });
+            clearTimers();
+        }
+
+        socket.on('clear_buzzers', () => {
+            clearTimers();
+            document.querySelectorAll('.player-cell').forEach(c => c.classList.remove('winner-green', 'winner-red'));
+            document.getElementById('host-timer-container').style.display = 'none';
+        });
+
+        function openKickModal() { renderKickModal(); document.getElementById('kickModal').style.display = 'flex'; }
+        function closeKickModal() { document.getElementById('kickModal').style.display = 'none'; }
+        function renderKickModal() {
+            const mGreen = document.getElementById('modal-green-list');
+            const mRed = document.getElementById('modal-red-list');
+            mGreen.innerHTML = ''; mRed.innerHTML = '';
+            currentPlayers.forEach(p => {
+                const div = document.createElement('div');
+                div.className = 'kick-list-item';
+                div.innerHTML = `<span>${p.name}</span> <button onclick="confirmKick('${p.deviceId}', '${p.name}')">طرد</button>`;
+                p.color === 'green' ? mGreen.appendChild(div) : mRed.appendChild(div);
+            });
+        }
+        function confirmKick(deviceId, playerName) {
+            if(confirm(`تأكيد طرد "${playerName}"؟`)) { socket.emit('kick_player', { roomCode: myRoomCode, deviceId: deviceId }); closeKickModal(); }
+        }
+    </script>
+</body>
+</html>

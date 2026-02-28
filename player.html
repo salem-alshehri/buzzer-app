@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>دخول اللاعب</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700&display=swap');
+        body { font-family: 'Cairo', sans-serif; background: #111; color: white; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: manipulation; }
+        
+        .step { display: none; width: 90%; max-width: 400px; text-align: center; }
+        .active-step { display: block; }
+        input { width: 100%; font-family: 'Cairo', sans-serif; font-size: 1.5rem; padding: 15px; border-radius: 10px; border: none; margin-bottom: 20px; text-align: center; box-sizing: border-box; }
+        .btn-next { width: 100%; background: #007bff; color: white; border: none; padding: 15px; font-size: 1.5rem; font-family: 'Cairo', sans-serif; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .team-btn { width: 100%; padding: 20px; font-size: 1.5rem; border: none; border-radius: 10px; margin-bottom: 15px; cursor: pointer; color: white; font-family: 'Cairo', sans-serif; font-weight: bold;}
+        .team-green-btn { background: #0f8000; }
+        .team-red-btn { background: #800000; }
+        
+        .buzzer-container { display: none; flex-direction: column; width: 100vw; height: 100vh; }
+        
+        .top-bar { display: flex; width: 100%; height: 35vh; background: #222; border-bottom: 3px solid #111; box-sizing: border-box; padding: 15px 10px; gap: 10px;}
+        .team-col { flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+        .vs-divider { display: flex; align-items: center; justify-content: center; font-weight: bold; color: #555; font-size: 1.2rem; }
+        .team-title { text-align: center; color: #aaa; font-size: 0.9rem; margin-bottom: 5px; }
+        
+        .player-item { background: #333; padding: 8px; border-radius: 8px; text-align: center; font-size: 1.1rem; font-weight: bold; transition: all 0.3s; }
+        .player-green { color: #39ff14; border: 1px solid #39ff14; }
+        .player-red { color: #ff073a; border: 1px solid #ff073a; }
+        
+        .winner-green { background: #39ff14 !important; color: white !important; box-shadow: 0 0 15px #39ff14; transform: scale(1.05); border-color: white;}
+        .winner-red { background: #ff073a !important; color: white !important; box-shadow: 0 0 15px #ff073a; transform: scale(1.05); border-color: white;}
+
+        .buzzer-area { flex: 1; width: 100%; background: #444; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease-in-out; }
+        .buzzer-btn { width: 100%; height: 100%; background: transparent; border: none; font-size: 4rem; font-family: 'Cairo', sans-serif; font-weight: bold; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: color 0.3s; }
+        
+        .text-green { color: #39ff14; }
+        .text-red { color: #ff073a; }
+        
+        .glow-bg-green { background: #39ff14 !important; }
+        .glow-bg-green .buzzer-btn { color: white !important; text-shadow: 0 0 20px rgba(0,0,0,0.5); font-size: 5rem;}
+        
+        .glow-bg-red { background: #ff073a !important; }
+        .glow-bg-red .buzzer-btn { color: white !important; text-shadow: 0 0 20px rgba(0,0,0,0.5); font-size: 5rem;}
+        
+    </style>
+</head>
+<body>
+
+    <div id="step1" class="step active-step">
+        <h2>أدخل رمز الغرفة</h2>
+        <input type="number" id="roomInput" placeholder="مثال: 1234">
+        <button class="btn-next" onclick="checkRoom()">التالي</button>
+    </div>
+
+    <div id="step2" class="step">
+        <h2>اختر فريقك</h2>
+        <button class="team-btn team-green-btn" onclick="selectTeam('green')">الفريق الأخضر</button>
+        <button class="team-btn team-red-btn" onclick="selectTeam('red')">الفريق الأحمر</button>
+    </div>
+
+    <div id="step3" class="step">
+        <h2>اكتب اسمك</h2>
+        <input type="text" id="nameInput" placeholder="اسمك هنا...">
+        <button class="btn-next" onclick="joinGame()">دخول اللعبة</button>
+    </div>
+
+    <div id="step4" class="buzzer-container">
+        <div class="top-bar">
+            <div class="team-col" id="my-team-list">
+                <div class="team-title">فريقك</div>
+            </div>
+            <div class="vs-divider">VS</div>
+            <div class="team-col" id="opp-team-list">
+                <div class="team-title">الخصم</div>
+            </div>
+        </div>
+        <div id="buzzer-area" class="buzzer-area">
+            <button id="buzzer" class="buzzer-btn" onclick="buzz()">اضغط!</button>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let myPlayerData = null;
+        
+        let myDeviceId = localStorage.getItem('strictDeviceId');
+        if (!myDeviceId) {
+            myDeviceId = 'DEV_' + Math.random().toString(36).substr(2, 9) + Date.now();
+            localStorage.setItem('strictDeviceId', myDeviceId);
+        }
+
+        let myRoomCode = localStorage.getItem('playerRoom');
+
+        if (myRoomCode) {
+            socket.emit('check_room', myRoomCode, (res) => {
+                if(res.exists) {
+                    socket.emit('join_room', { roomCode: myRoomCode, name: '', color: '', deviceId: myDeviceId });
+                } else {
+                    clearData();
+                }
+            });
+        }
+
+        function showStep(stepId) {
+            document.querySelectorAll('.step').forEach(el => el.classList.remove('active-step'));
+            document.getElementById(stepId).classList.add('active-step');
+        }
+
+        function checkRoom() {
+            const code = document.getElementById('roomInput').value.trim();
+            if(!code) return alert('أدخل الرمز!');
+            socket.emit('check_room', code, (res) => {
+                if(res.exists) { myRoomCode = code; showStep('step2'); } 
+                else { alert('رمز الغرفة غير صحيح!'); }
+            });
+        }
+
+        let tempColor = '';
+        function selectTeam(color) { tempColor = color; showStep('step3'); }
+
+        function joinGame() {
+            const name = document.getElementById('nameInput').value.trim();
+            if(!name) return alert('لازم تكتب اسمك!');
+            
+            localStorage.setItem('playerRoom', myRoomCode);
+            socket.emit('join_room', { roomCode: myRoomCode, name: name, color: tempColor, deviceId: myDeviceId });
+        }
+
+        socket.on('join_success', (playerData) => {
+            myPlayerData = playerData;
+            document.querySelectorAll('.step').forEach(el => el.style.display = 'none');
+            
+            const buzzerContainer = document.getElementById('step4');
+            const buzzerBtn = document.getElementById('buzzer');
+            
+            buzzerContainer.style.display = 'flex';
+            buzzerBtn.className = 'buzzer-btn ' + (playerData.color === 'green' ? 'text-green' : 'text-red');
+            buzzerBtn.innerText = 'اضغط!';
+        });
+
+        socket.on('update_players', (players) => {
+            if(!myPlayerData) return;
+            
+            const myTeamDiv = document.getElementById('my-team-list');
+            const oppTeamDiv = document.getElementById('opp-team-list');
+            
+            myTeamDiv.innerHTML = '<div class="team-title">فريقك</div>';
+            oppTeamDiv.innerHTML = '<div class="team-title">الخصم</div>';
+
+            players.forEach(p => {
+                const el = document.createElement('div');
+                el.id = 'player-ui-' + p.id;
+                el.innerText = p.name;
+                el.className = 'player-item ' + (p.color === 'green' ? 'player-green' : 'player-red');
+                
+                if (p.color === myPlayerData.color) {
+                    myTeamDiv.appendChild(el);
+                } else {
+                    oppTeamDiv.appendChild(el);
+                }
+            });
+        });
+
+        function buzz() {
+            socket.emit('buzz', myRoomCode);
+            if (navigator.vibrate) navigator.vibrate(50);
+        }
+
+        socket.on('declare_winner', (winner) => {
+            const buzzerBtn = document.getElementById('buzzer');
+            const buzzerArea = document.getElementById('buzzer-area');
+            buzzerBtn.disabled = true; 
+            
+            const winnerCell = document.getElementById('player-ui-' + winner.id);
+            if(winnerCell) {
+                winnerCell.classList.add(winner.color === 'green' ? 'winner-green' : 'winner-red');
+            }
+
+            if (winner.id === myPlayerData.id) {
+                buzzerArea.classList.add(winner.color === 'green' ? 'glow-bg-green' : 'glow-bg-red');
+                buzzerBtn.innerText = 'جاوب!'; 
+            } else {
+                buzzerBtn.innerText = `سبقك\n${winner.name}`;
+                buzzerBtn.style.color = '#888'; 
+            }
+        });
+
+        socket.on('other_team_time_started', (blockedTeamColor) => {
+            const buzzerBtn = document.getElementById('buzzer');
+            const buzzerArea = document.getElementById('buzzer-area');
+            
+            buzzerArea.className = 'buzzer-area';
+            document.querySelectorAll('.player-item').forEach(el => el.classList.remove('winner-green', 'winner-red'));
+
+            if (myPlayerData.color === blockedTeamColor) {
+                buzzerBtn.disabled = true;
+                buzzerBtn.innerText = 'استمع لجواب الخصم!';
+                buzzerBtn.style.color = '#555'; 
+            } else {
+                buzzerBtn.disabled = false;
+                buzzerBtn.innerText = 'دورك اضغط!';
+                buzzerBtn.className = 'buzzer-btn ' + (myPlayerData.color === 'green' ? 'text-green' : 'text-red');
+            }
+        });
+
+        // إذا انتهى عداد 10 ثواني بدون استجابة
+        socket.on('time_locked', () => {
+            const buzzerBtn = document.getElementById('buzzer');
+            const buzzerArea = document.getElementById('buzzer-area');
+            
+            buzzerArea.className = 'buzzer-area';
+            document.querySelectorAll('.player-item').forEach(el => el.classList.remove('winner-green', 'winner-red'));
+
+            buzzerBtn.disabled = true;
+            buzzerBtn.innerText = 'انتهى الوقت!';
+            buzzerBtn.style.color = '#555';
+        });
+
+        socket.on('clear_buzzers', () => {
+            const buzzerBtn = document.getElementById('buzzer');
+            const buzzerArea = document.getElementById('buzzer-area');
+            
+            buzzerBtn.disabled = false;
+            buzzerBtn.innerText = 'اضغط!';
+            buzzerBtn.style.color = ''; 
+            buzzerBtn.className = 'buzzer-btn ' + (myPlayerData.color === 'green' ? 'text-green' : 'text-red');
+            buzzerArea.className = 'buzzer-area'; 
+            
+            document.querySelectorAll('.player-item').forEach(el => {
+                el.classList.remove('winner-green', 'winner-red');
+            });
+        });
+
+        socket.on('you_were_kicked', () => {
+            alert('تم طردك من الغرفة نهائياً بواسطة المقدم!');
+            clearData();
+            window.location.href = '/';
+        });
+
+        socket.on('room_closed', () => {
+            alert('تم إغلاق الغرفة من قبل المقدم.');
+            clearData();
+            window.location.href = '/';
+        });
+
+        function clearData() {
+            localStorage.removeItem('playerRoom');
+        }
+    </script>
+</body>
+</html>
