@@ -247,6 +247,23 @@
         function clearData() {
             localStorage.removeItem('playerRoom');
         }
+
+        // --- التزامن الذكي (لمعالجة خروج اللاعب من المتصفح أو قفل الشاشة) ---
+        
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible" && myRoomCode && myPlayerData) {
+                socket.emit('request_sync', myRoomCode);
+            }
+        });
+
+        socket.on('connect', () => {
+            if (myRoomCode && myPlayerData) {
+                socket.emit('join_room', { roomCode: myRoomCode, name: myPlayerData.name, color: myPlayerData.color, deviceId: myDeviceId });
+                socket.emit('request_sync', myRoomCode);
+            }
+        });
+        // ------------------------------------------------------------------
+
     </script>
 </body>
 </html>

@@ -15,7 +15,8 @@ io.on('connection', (socket) => {
     socket.on('create_room', () => {
         const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
         const hostToken = Math.random().toString(36).substring(2);
-        rooms[roomCode] = { hostToken, hostSocket: socket.id, isLocked: false, blockedTeam: null, players: [], timer: null, timersEnabled: true };
+        // التعديل: إضافة currentWinner لتسجيل حالة الفائز الحالية
+        rooms[roomCode] = { hostToken, hostSocket: socket.id, isLocked: false, blockedTeam: null, players: [], timer: null, timersEnabled: true, currentWinner: null };
         socket.join(roomCode);
         socket.emit('room_created', { roomCode, hostToken });
     });
@@ -75,19 +76,18 @@ io.on('connection', (socket) => {
 
                 rooms[roomCode].isLocked = true;
                 
-                // التعديل هنا: إذا ضغط الفريق الثاني خلال فترة الـ 10 ثواني (لما يكون فيه فريق ممنوع)
-                // نعطل العدادات بالكامل عشان ما ترجع تشتغل للهوست
                 if (rooms[roomCode].blockedTeam !== null) {
                     rooms[roomCode].timersEnabled = false; 
                     rooms[roomCode].blockedTeam = null; 
                 }
 
+                // التعديل: حفظ الفائز الحالي
+                rooms[roomCode].currentWinner = player;
                 io.to(roomCode).emit('declare_winner', { ...player, timersEnabled: rooms[roomCode].timersEnabled });
             }
         }
     });
 
-    // التعديل هنا: أمر جديد يمسح التوهج بعد انتهاء 3 ثواني
     socket.on('time_3s_finished', (roomCode) => {
         if (rooms[roomCode]) {
             io.to(roomCode).emit('remove_glow');
@@ -107,6 +107,8 @@ io.on('connection', (socket) => {
         if (rooms[roomCode]) {
             rooms[roomCode].blockedTeam = null; 
             rooms[roomCode].isLocked = true; 
+            // التعديل: تسجيل حالة انتهاء الوقت
+            rooms[roomCode].currentWinner = 'timeout';
             io.to(roomCode).emit('time_locked'); 
         }
     });
@@ -117,7 +119,28 @@ io.on('connection', (socket) => {
             rooms[roomCode].isLocked = false;
             rooms[roomCode].blockedTeam = null;
             rooms[roomCode].timersEnabled = isNewQuestion; 
+            // التعديل: تصفير حالة الفائز
+            rooms[roomCode].currentWinner = null;
             io.to(roomCode).emit('clear_buzzers');
+        }
+    });
+
+    // التعديل الأهم: أمر التزامن المباشر للّاعبين عند عودتهم للصفحة
+    socket.on('request_sync', (roomCode) => {
+        if (rooms[roomCode]) {
+            const room = rooms[roomCode];
+            
+            socket.emit('update_players', room.players);
+
+            if (room.currentWinner === 'timeout') {
+                socket.emit('time_locked');
+            } else if (room.blockedTeam !== null) {
+                socket.emit('other_team_time_started', room.blockedTeam);
+            } else if (room.currentWinner) {
+                socket.emit('declare_winner', { ...room.currentWinner, timersEnabled: room.timersEnabled });
+            } else {
+                socket.emit('clear_buzzers');
+            }
         }
     });
 
